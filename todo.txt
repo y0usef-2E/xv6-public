@@ -1,0 +1,19 @@
+0. pstat cannot be changed
+
+1. int settickets(int number)
+returns 0 if successful, and (-1) otherwise.
+
+2. int getpininfo(struct pstat*)
+
+3. a child process inherits the same number of tickets as its parent
+
+4. implement a PRNG
+
+5. handle/manipulate struct pstat
+
+6. pass results to user space
+
+
+NOTES:
+see *sys_read()* to learn how to pass args to kernel
+(incl. argptr(), et cetera).

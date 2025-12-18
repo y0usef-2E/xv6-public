@@ -124,6 +124,9 @@ void            yield(void);
 // swtch.S
 void            swtch(struct context**, struct context*);
 
+// rand.S
+int rand1(void);
+
 // spinlock.c
 void            acquire(struct spinlock*);
 void            getcallerpcs(void*, uint*);
