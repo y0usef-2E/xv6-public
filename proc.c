@@ -15,16 +15,7 @@ struct ptable_t {
 
 struct ptable_t ptable = {0};
 
-/*
-struct pstat_t {
-	int inuse[NPROC];   // whether this slot of the process table is in use (1 or 0)
-	int tickets[NPROC]; // the number of tickets this process has
-	int pid[NPROC];     // the PID of each process
-	int ticks[NPROC];   // the number of ticks each process has accumulated
-};
-*/
-
-// static struct pstat_t pstat = {0};
+static struct pstat_t pstat = {0};
 
 static struct proc *initproc;
 
@@ -164,6 +155,11 @@ userinit(void)
 	// because the assignment might not be atomic.
 	acquire(&ptable.lock);
 
+	uint proc_at = (uint)p / sizeof(p);
+	pstat.inuse[proc_at] = 1;
+	pstat.pid[proc_at] = p->pid;
+	pstat.tickets[proc_at] = 10;
+
 	p->state = RUNNABLE;
 
 	release(&ptable.lock);
@@ -216,6 +212,14 @@ fork(void)
 	np->parent = curproc;
 	*np->tf = *curproc->tf;
 
+	uint curproc_index = (uint)curproc / sizeof(np);
+	uint np_index = (uint)np / sizeof(np);
+
+	if (!pstat.inuse[curproc_index]){
+		panic("process table not properly initialised");
+	}
+
+
 	// Clear %eax so that fork returns 0 in the child.
 	np->tf->eax = 0;
 
@@ -230,6 +234,10 @@ fork(void)
 
 	acquire(&ptable.lock);
 
+	pstat.inuse[np_index] = 1;
+	pstat.pid[np_index] = np->pid;
+	pstat.tickets[np_index] = pstat.tickets[curproc_index];
+	
 	np->state = RUNNABLE;
 
 	release(&ptable.lock);
@@ -276,6 +284,11 @@ exit(void)
 				wakeup1(initproc);
 		}
 	}
+
+	uint p_at = (uint) p / sizeof(p);
+	pstat.inuse[p_at] = 0;
+	pstat.tickets[p_at] = 0;
+	pstat.pid[p_at] = 0;
 
 	// Jump into the scheduler, never to return.
 	curproc->state = ZOMBIE;
@@ -359,6 +372,39 @@ scheduler(void)
 		// switchkvm();
 		// 
 		
+		uint total_tickets = 0;
+		for(uint i = 0; i<NPROC; ++i){
+			if(pstat.inuse[i]){
+				total_tickets += pstat.tickets[i];
+			}
+		}
+
+		uint ticket_nr = (rand1() + rand1()) % total_tickets;
+
+		struct proc* winner = 0;
+
+		uint count_tickets = 0;
+		for (uint i = 0; i<NPROC; ++i){
+			if(pstat.inuse[i]){
+				if (ticket_nr <= count_tickets + pstat.tickets[i]){
+					winner = ptable.proc + i;
+					break;
+				}
+				count_tickets += pstat.tickets[i];
+			}
+		}
+		
+		if (winner == 0){
+			panic("No process won the lottery.");
+		}
+
+		c->proc = winner;
+		switchuvm(winner);
+		winner->state = RUNNING;
+		swtch(&(c->scheduler), winner->context);
+		switchkvm();
+
+		c->proc = 0;
 		release(&ptable.lock);
 
 	}
@@ -538,10 +584,15 @@ kill(int pid)
 	acquire(&ptable.lock);
 	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
 		if(p->pid == pid){
+			uint p_at = (uint) p / sizeof(p);
 			p->killed = 1;
 			// Wake process from sleep if necessary.
 			if(p->state == SLEEPING)
 				p->state = RUNNABLE;
+
+			pstat.inuse[p_at] = 0;
+			pstat.tickets[p_at] = 0;
+			pstat.pid[p_at] = 0;
 			release(&ptable.lock);
 			return 0;
 		}
